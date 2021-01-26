@@ -1,6 +1,6 @@
 # ubuntu-cloud-init-kvm
 
-shell script to deploy a new Ubuntu (Focal) cloud image on KVM.
+shell script to deploy a new Ubuntu (Focal) cloud image on KVM. Once the guest tools have established the new IP, a message is sent to Telegram with the new VMs IP address.
 
 ## scripts
 
@@ -12,3 +12,4 @@ shell script to deploy a new Ubuntu (Focal) cloud image on KVM.
 
 - Make the script more configurable. For example my internal DNS server and search domains are currently hard coded.
 - Maybe document the KVM setup.
+- Dependency check for `telegram-send`

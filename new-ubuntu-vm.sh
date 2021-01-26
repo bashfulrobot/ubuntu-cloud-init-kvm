@@ -172,4 +172,18 @@ sudo rm -f ${WRK_FLDR}/user-data
 sudo rm -f ${WRK_FLDR}/meta-data
 showDone
 
-printGreen "success! vm has been deployed."
+# get guest IP
+printTitle "Waiting for cloud-init to finish"
+printYellow "waiting for qemu-agent to get IP..."
+
+until virsh domifaddr --source agent ${HOST} >/dev/null 2>&1; do
+    printYellow "waiting for qemu-agent to get IP..."
+    sleep 20
+done
+
+MYIP=$(virsh domifaddr --source agent "${HOST}" | grep 10.0 | cut -d " " -f20)
+
+telegram-send "success! ${HOST} vm has been deployed on: ${MYIP}."
+
+showDone
+printGreen "success! ${HOST} vm has been deployed on: ${MYIP}."
