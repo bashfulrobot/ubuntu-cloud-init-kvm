@@ -64,6 +64,24 @@ read -p "" DISKGB
 printYellow "Username: "
 read -p "" USERID
 
+while true; do
+    printYellow "Bridge (b) or Nat (n): "
+    read -p "" bn
+    case $bn in
+    b | B)
+        NTWK="b"
+        break
+        ;;
+    n | N)
+        NTWK="n"
+        break
+        ;;
+    *)
+        echo "Please answer b for bridge or n for nat."
+        ;;
+    esac
+done
+
 # export HOST=test2
 export DOM=mylo
 export IMAGE_FLDR="/var/lib/libvirt/images"
@@ -153,7 +171,20 @@ showDone
 # Create seed image
 # Adding network-config causes logins to not work
 printTitle "creating seed image"
-sudo cloud-localds -v --network-config=network-config ${IMAGE_FLDR}/${HOST}-seed.qcow2 user-data meta-data
+case ${NTWK} in
+b)
+    sudo cloud-localds -v --network-config=network-config ${IMAGE_FLDR}/${HOST}-seed.qcow2 user-data meta-data
+    ;;
+n)
+    sudo cloud-localds -v ${IMAGE_FLDR}/${HOST}-seed.qcow2 user-data meta-data
+    ;;
+*)
+    printYellow "Seed image not created. Failed cloud-localds."
+    showFail
+    exit 1
+    ;;
+esac
+
 showDone
 
 # Ensure images have the proper permissions
@@ -162,8 +193,23 @@ sudo chown -R libvirt-qemu:kvm ${IMAGE_FLDR}
 showDone
 
 # Create VM
+
 printTitle "creating vm"
-sudo virt-install --virt-type kvm --name ${HOST} --ram ${RAM} --vcpus=${VCPU} --os-type linux --os-variant ubuntu20.04 --disk path=${IMAGE_FLDR}/${HOST}.qcow2,device=disk --disk path=${IMAGE_FLDR}/${HOST}-seed.qcow2,device=disk --graphics=vnc --import --network bridge=br0,model=virtio,mac=${MAC_ADDR} --noautoconsole
+
+case ${NTWK} in
+b)
+    sudo virt-install --virt-type kvm --name ${HOST} --ram ${RAM} --vcpus=${VCPU} --os-type linux --os-variant ubuntu20.04 --disk path=${IMAGE_FLDR}/${HOST}.qcow2,device=disk --disk path=${IMAGE_FLDR}/${HOST}-seed.qcow2,device=disk --graphics=vnc --import --network bridge=br0,model=virtio,mac=${MAC_ADDR} --noautoconsole
+    ;;
+n)
+    sudo virt-install --virt-type kvm --name ${HOST} --ram ${RAM} --vcpus=${VCPU} --os-type linux --os-variant ubuntu20.04 --disk path=${IMAGE_FLDR}/${HOST}.qcow2,device=disk --disk path=${IMAGE_FLDR}/${HOST}-seed.qcow2,device=disk --graphics=vnc --import --network network=default,model=virtio,mac=${MAC_ADDR} --noautoconsole
+    ;;
+*)
+    printYellow "Your network has an error. Failed virt-install."
+    showFail
+    exit 1
+    ;;
+esac
+
 showDone
 
 printTitle "cleaning up"
@@ -181,7 +227,7 @@ until virsh domifaddr --source agent ${HOST} >/dev/null 2>&1; do
     sleep 20
 done
 
-MYIP=$(virsh domifaddr --source agent "${HOST}" | grep 10.0 | cut -d " " -f20)
+MYIP=$(virsh domifaddr --source agent "${HOST}" | grep -e 10.0 -e 192. | cut -d " " -f20)
 
 telegram-send "success! ${HOST} vm has been deployed on: ${MYIP}."
 
