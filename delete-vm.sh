@@ -62,6 +62,8 @@ printGreen "THIS WILL DELETE ALL ASSOCIATED VM STORAGE!!!"
 read -p "Press [ENTER] to continue, or [Ctrl-C] to exit."
 echo
 
-virsh undefine --domain ${1} --delete-snapshots --remove-all-storage
+sudo virsh shutdown ${1}
+sleep 5
+sudo virsh undefine --domain ${1} --delete-snapshots --remove-all-storage
 
 exit 0
