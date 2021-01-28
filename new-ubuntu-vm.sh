@@ -43,6 +43,11 @@ function showFail() {
     exit 1
 }
 
+function testEcho() {
+    printf "$RED \u2694 %1s \n" " $1: $2 - [TESTING] $NC"
+    exit 1
+}
+
 clear
 
 # Generate random MAC to use
@@ -64,16 +69,24 @@ read -p "" DISKGB
 printYellow "Username: "
 read -p "" USERID
 
+# USED FOR TESTING
+# VCPU=2
+# RAM=2048
+# DISKGB=10
+# USERID=dustin
+
+# Do we want a bridged interface?
 while true; do
     printYellow "Bridge (b) or Nat (n): "
     read -p "" bn
+
     case $bn in
     b | B)
-        NTWK="b"
+        NTWK="bridged"
         break
         ;;
     n | N)
-        NTWK="n"
+        NTWK="nat"
         break
         ;;
     *)
@@ -81,6 +94,35 @@ while true; do
         ;;
     esac
 done
+
+if [ "$NTWK" = "bridged" ]; then
+
+    while true; do
+        # If the interface is a bridge, ask:
+        printYellow "Static (s) or DHCP (d) address: "
+        read -p "" sd
+
+        case $sd in
+        s | S)
+            DHCP="no"
+            printYellow "Enter Static Ip: "
+            read -p "" STATICIP
+            break
+            ;;
+        d | D)
+            DHCP="yes"
+            break
+            ;;
+        *)
+            echo "Invalid choice for: Static (s) or DHCP (d) address."
+            showFail
+            exit 1
+            ;;
+        esac
+
+    done
+
+fi
 
 # export HOST=test2
 export DOM=mylo
@@ -96,7 +138,29 @@ showDone
 
 printTitle "creating network-config"
 # Config network with cloud-init
-cat >network-config <<EOFN
+
+if [ "$DHCP" = "no" ]; then
+    # Create network-config to set a static address
+    cat >network-config <<EOFSTATIC
+ethernets:
+    all:
+        addresses:
+        - ${STATICIP}/20
+        dhcp4: false
+        gateway4: 10.0.0.1
+        match:
+            name: en*
+        nameservers:
+            search: [mylo]
+            addresses:
+            - 10.0.0.33
+version: 2
+EOFSTATIC
+# Create network-config to use a DHCP address
+# for a bridged or nat interface
+elif [ "$DHCP" = "yes" ] || [ "$NTWK" = "nat" ]; then
+
+    cat >network-config <<EOFDHCP
 ethernets:
     all:
         dhcp4: true
@@ -107,8 +171,14 @@ ethernets:
             addresses:
             - 10.0.0.33
 version: 2
+EOFDHCP
 
-EOFN
+else
+    printYellow "Could not create network-config file"
+    showFail
+    exit 1
+fi
+
 showDone
 
 # Main cloud-init
@@ -169,21 +239,18 @@ touch meta-data
 showDone
 
 # Create seed image
-# Adding network-config causes logins to not work
 printTitle "creating seed image"
-case ${NTWK} in
-b)
+if [ "$NTWK" = "bridged" ]; then
+    # Import network-config for bridged interfaces
     sudo cloud-localds -v --network-config=network-config ${IMAGE_FLDR}/${HOST}-seed.qcow2 user-data meta-data
-    ;;
-n)
+elif [ "$NTWK" = "nat" ]; then
+    # Skip the network-config file and let KVM do the default NAT
     sudo cloud-localds -v ${IMAGE_FLDR}/${HOST}-seed.qcow2 user-data meta-data
-    ;;
-*)
+else
     printYellow "Seed image not created. Failed cloud-localds."
     showFail
     exit 1
-    ;;
-esac
+fi
 
 showDone
 
@@ -197,10 +264,12 @@ showDone
 printTitle "creating vm"
 
 case ${NTWK} in
-b)
+bridged)
+    # bridged network
     sudo virt-install --virt-type kvm --name ${HOST} --ram ${RAM} --vcpus=${VCPU} --os-type linux --os-variant ubuntu20.04 --disk path=${IMAGE_FLDR}/${HOST}.qcow2,device=disk --disk path=${IMAGE_FLDR}/${HOST}-seed.qcow2,device=disk --graphics=vnc --import --network bridge=br0,model=virtio,mac=${MAC_ADDR} --noautoconsole
     ;;
-n)
+nat)
+    # nat network
     sudo virt-install --virt-type kvm --name ${HOST} --ram ${RAM} --vcpus=${VCPU} --os-type linux --os-variant ubuntu20.04 --disk path=${IMAGE_FLDR}/${HOST}.qcow2,device=disk --disk path=${IMAGE_FLDR}/${HOST}-seed.qcow2,device=disk --graphics=vnc --import --network network=default,model=virtio,mac=${MAC_ADDR} --noautoconsole
     ;;
 *)
@@ -222,12 +291,12 @@ showDone
 printTitle "Waiting for cloud-init to finish"
 printYellow "waiting for qemu-agent to get IP..."
 
-until virsh domifaddr --source agent ${HOST} >/dev/null 2>&1; do
+until sudo virsh domifaddr --source agent ${HOST} >/dev/null 2>&1; do
     printYellow "waiting for qemu-agent to get IP..."
     sleep 20
 done
 
-MYIP=$(virsh domifaddr --source agent "${HOST}" | grep -e 10.0 -e 192. | cut -d " " -f20)
+MYIP=$(sudo virsh domifaddr --source agent "${HOST}" | grep -e 10.0 -e 192. | cut -d " " -f20)
 
 telegram-send "success! ${HOST} vm has been deployed on: ${MYIP}."
 
