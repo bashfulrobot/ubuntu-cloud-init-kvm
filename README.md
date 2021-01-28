@@ -2,6 +2,8 @@
 
 shell script to deploy a new Ubuntu (Focal) cloud image on KVM. Once the guest tools have established the new IP, a message is sent to Telegram with the new VMs IP address.
 
+These scripts currently assume you have a KVM environment and associated tools installed.
+
 ## scripts
 
 - `update-ubuntu-cloud-img.sh` will download the ubuntu focal cloud image and place the image where the deployment ecript expects it to be. This is intended to be run on the KVM host.
